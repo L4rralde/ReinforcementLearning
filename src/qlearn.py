@@ -6,7 +6,7 @@ import numpy as np
 
 
 class QLearning(ABC):
-	def _init_(self, env) -> None:
+	def __init__(self, env) -> None:
 		self.env = env
 		self.table = self.init_q_table()
 

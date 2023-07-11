@@ -11,5 +11,5 @@ def main():
 	print(f"Mean reward: {mean_reward}, standard deviation of reward: {std_reward}")
 
 
-if _name_ == '_main_':
+if __name__ == '__main__':
 	main()

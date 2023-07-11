@@ -3,7 +3,7 @@ import copy
 import math
 
 class Node:
-	def _init_(self, game, done, parent, observation, action_idx) -> None:
+	def __init__(self, game, done, parent, observation, action_idx) -> None:
 		self.child = None #Child nodes
 		self.T = 0 #Represents the sum of the value of the rollouts that have been started from this node
 		self.N = 0 #Visit count

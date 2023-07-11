@@ -55,5 +55,5 @@ def main() -> None:
 	print(f"moving_average: {np.mean(rewards[-20:])}")
 
 
-if _name_ == '_main_':
+if __name__ == '__main__':
 	main()
