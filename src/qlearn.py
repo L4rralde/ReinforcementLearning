@@ -16,7 +16,7 @@ class QLearning(ABC):
 	def acting_policy(self):
 		pass
 
-	def acting_policy(self):
+	def updating_policy(self):
 		pass
 
 	def train(self):
