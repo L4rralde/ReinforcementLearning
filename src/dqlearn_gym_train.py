@@ -8,8 +8,8 @@ def main():
     env = gym.wrappers.GrayScaleObservation(env)
     env = gym.wrappers.FrameStack(env, 4)
     deep_q_agent = AtariDeepQLearning(env)
-    deep_q_agent.train(episodes=10)
-    #deep_q_agent.save('dqln.model')
+    deep_q_agent.train(episodes=100, timesteps=2000)
+    deep_q_agent.save('dqln.model')
 
 
 if __name__ == '__main__':

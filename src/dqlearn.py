@@ -1,3 +1,4 @@
+from typing import NamedTuple
 import random
 import copy
 from abc import ABC
@@ -16,53 +17,59 @@ elif torch.backends.mps.is_available():
 else:
     device = "cpu"
 
+class ReplayBufferSamples(NamedTuple):
+    states: torch.Tensor
+    actions: torch.Tensor
+    next_states: torch.Tensor
+    dones: torch.Tensor
+    rewards: torch.Tensor
+
 
 class ReplayBuffer():
-    def __init__(self, max_len, states: list=[], next_states: list=[], actions: list=[], rewards: list=[], dones: list=[], infos: list=[]) -> None:
-        self.states = states
-        self.next_states = next_states
-        self.actions = actions
-        self.rewards = rewards
-        self.dones = dones
-        self.infos = infos
-        self.max_len = max_len
-        self.cnt = 0
+    def __init__(self, env, size: int) -> None:
+        self.pos = 0
+        self.size = size
+        self.states = np.zeros((self.size, *env.observation_space.shape), dtype=env.observation_space.dtype)
+        self.next_states = np.zeros((self.size, *env.observation_space.shape), dtype=env.observation_space.dtype)
+        self.actions = np.zeros((self.size, 1, *env.action_space.shape), dtype=env.action_space.dtype) #@L4rralde [FIXME]. 1 Hardcoded
+        self.rewards = np.zeros(self.size, dtype = np.float32)
+        self.dones = np.zeros(self.size, dtype = np.float32)
+        self.timeouts = np.zeros(self.size, dtype = np.float32)
+        self.full = False
 
     def __len__(self) -> int:
-        return len(self.states)
+        if self.full:
+            return self.size
+        return self.pos
 
-    def __getitem__(self, i: int):
-        return ReplayBuffer(self.max_len, [self.states[i]], [self.next_states[i]], [self.actions[i]], [self.rewards[i]], [self.dones[i]], [self.infos[i]])
+    def to_torch(self, array: np.array) -> torch.Tensor:
+        return torch.Tensor(array).to(device)
 
     def add(self, state, next_state, action, reward, done, info) -> None:
-        if self.cnt < len(self.states):
-            self.states[self.cnt] = state
-            self.next_states[self.cnt] = next_state
-            self.actions[self.cnt] = action
-            self.rewards[self.cnt] = reward
-            self.dones[self.cnt] = done
-            self.infos[self.cnt] = info
-        else:
-            self.states.append(state)
-            self.next_states.append(next_state)
-            self.actions.append(action)
-            self.rewards.append(reward)
-            self.dones.append(done)
-            self.infos.append(info)
-        self.cnt += 1
-        self.cnt = self.cnt%self.max_len
+        self.states[self.pos] = np.array(state).copy()
+        self.next_states[self.pos] = np.array(next_state).copy()
+        self.actions[self.pos] = np.array(action).copy()
+        self.rewards[self.pos] = np.array(reward).copy()
+        self.dones[self.pos] = np.array(done).copy()
+        self.timeouts[self.pos] = np.array([info.get("TimeLimit.truncated", False)])
+
+        self.pos += 1
+        self.pos %= self.size
+        if self.pos == 0:
+            self.full = True
 
     def sample(self, n: int=1):
         if n > len(self.states):
             raise ValueError("Tried to request more than values than existing")
         sequence = random.sample(range(len(self.states)), n)
-        states = [self.states[i] for i in sequence]
-        next_states = [self.next_states[i] for i in sequence]
-        actions = [self.actions[i] for i in sequence]
-        rewards = [self.rewards[i] for i in sequence]
-        dones = [self.rewards[i] for i in sequence]
-        infos = [self.infos[i] for i in sequence]
-        return ReplayBuffer(self.max_len, states, next_states, actions, rewards, dones, infos)
+        data = (
+            self.states[sequence, :],
+            self.actions[sequence],
+            self.next_states[sequence, :],
+            (self.dones[sequence] * (1 - self.timeouts[sequence])).reshape(-1, 1),
+            self.rewards[sequence].reshape(-1,1),
+        )
+        return ReplayBufferSamples(*tuple(map(self.to_torch, data)))
 
 
 def greedy_epsilon(episode: int, decay_rate: float, min_epsilon: float=0.01):
@@ -137,39 +144,45 @@ class AtariDeepQLearning(DeepQLearning):
 
     def train(self,
             episodes: int = 10,
-            timesteps: int = 1000,
+            timesteps: int = 10000,
             alpha: float = 1e-4,
             gamma: float = 0.99,
-            decay_rate: float = 0.0005) -> None:
-        replay_buffer = ReplayBuffer(1000)
+            decay_rate: float = 0.0001) -> None:
+        replay_buffer = ReplayBuffer(self.env, 1000)
 
         #target_network = copy.deepcopy(self.quality_network) Does this really work?
         target_network = AtariDeepQNetwork(self.env).to(device)
         target_network.load_state_dict(self.quality_network.state_dict())
 
         optimizer = optim.Adam(self.quality_network.parameters(), lr=alpha)
-        for episode in tqdm(range(episodes)):
+        for episode in range(episodes):
             # Initialize sequence?
             state, _ = self.env.reset()
-            for timestep in range(timesteps):
+            losses = []
+            rewards = []
+            for timestep in tqdm(range(timesteps)):
                 ## Sampling
                 # greedy update policy
-                epsilon = greedy_epsilon(episode, decay_rate)
+                epsilon = greedy_epsilon(episode*timesteps+timestep, decay_rate) #@L4rralde [FIXME]. how much should decay?
                 action = self.update_policy(state, epsilon)
                 # Execute action in emulator and observe
                 new_state, reward, done, truncated, info = self.env.step(action)
+                rewards.append(reward)
                 # Store transition
+                #@L4rralde [TODO]: How to handle final observation?
                 replay_buffer.add(state, new_state, action, reward, done, info)
+                state = new_state
                 if (len(replay_buffer) < 500) or (len(replay_buffer)%4 != 0):
                     continue
                 ##Training
                 mini_batch = replay_buffer.sample(32)
                 with torch.no_grad():
                     #@L4rralde. This is horrible
-                    target_max, _ = target_network(torch.Tensor(mini_batch.next_states).to(device)).max(dim=1)
-                    td_target = torch.Tensor(mini_batch.rewards).to(device).flatten() + gamma*target_max*(1-torch.Tensor(mini_batch.dones).to(device).flatten())
-                prediction = self.quality_network(torch.Tensor(mini_batch.states).to(device)).gather(1, torch.Tensor([mini_batch.actions]).to(device).type(torch.int64)).squeeze()
+                    target_max, _ = target_network(mini_batch.next_states).max(dim=1)
+                    td_target = mini_batch.rewards.flatten() + gamma*target_max*(1-mini_batch.dones.flatten())
+                prediction = self.quality_network(mini_batch.states).gather(1, mini_batch.actions.type(torch.int64)).squeeze()
                 loss = F.mse_loss(td_target, prediction)
+                losses.append(loss)
 
                 #Backpropagate
                 optimizer.zero_grad()
@@ -177,10 +190,14 @@ class AtariDeepQLearning(DeepQLearning):
                 optimizer.step()
 
                 #Update target network every C steps
-                if timestep%100 == 0:
+                if timestep%1000 == 0:
                     #target_network = copy.deepcopy(self.quality_network) #FIXME: is this efficient? I don't even know if deepcopy works across devices
                     #@L4rralde [TBD], should I use an update ratio, like target_param <- ratio*target_param + (1-ratio)*target_param
                     target_network.load_state_dict(self.quality_network.state_dict())
+            if not(losses):
+                print(f"episode {episode+1}/{episodes}. loss=NAN")
+            else:
+                print(f"episode {episode+1}/{episodes}. loss={sum(losses)/len(losses)}, rewards={sum(rewards)/len(rewards)}")
 
     def evaluate(self,
                  max_steps: int = 99,
