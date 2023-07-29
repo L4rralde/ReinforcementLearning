@@ -1,4 +1,5 @@
 import gym
+
 from dqlearn import AtariDeepQLearning
 
 
@@ -8,7 +9,7 @@ def main():
     env = gym.wrappers.GrayScaleObservation(env)
     env = gym.wrappers.FrameStack(env, 4)
     deep_q_agent = AtariDeepQLearning(env)
-    deep_q_agent.train(episodes=100, timesteps=2000)
+    deep_q_agent.train()
     deep_q_agent.save('dqln.model')
 
 

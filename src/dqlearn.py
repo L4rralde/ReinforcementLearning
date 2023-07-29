@@ -17,6 +17,7 @@ elif torch.backends.mps.is_available():
 else:
     device = "cpu"
 
+
 class ReplayBufferSamples(NamedTuple):
     states: torch.Tensor
     actions: torch.Tensor
@@ -76,9 +77,9 @@ def greedy_epsilon(episode: int, decay_rate: float, min_epsilon: float=0.01):
     return min_epsilon + (1-min_epsilon)*np.exp(-decay_rate*episode)
 
 
-def linear_schedule(episode: int, duration: float, min_value: float=0.01):
-    slope = (1.0-min_value)/duration
-    return max(min_value, 1.0+slope*episode)
+def linear_schedule(timestep: int, duration: float, min_value: float=0.01):
+    slope = (min_value-1.0)/duration
+    return max(min_value, 1.0+slope*timestep)
 
 
 class DeepQLearning(ABC):
@@ -133,7 +134,6 @@ class AtariDeepQLearning(DeepQLearning):
     def acting_policy(self, state) -> None:
         q_values = self.quality_network(torch.Tensor([state]).to(device))
         return torch.argmax(q_values, dim=1).cpu()
-    
 
     def update_policy(self, state: list, epsilon: float) -> int:
         if epsilon > random.random():
@@ -143,64 +143,83 @@ class AtariDeepQLearning(DeepQLearning):
         return action
 
     def train(self,
-            episodes: int = 10,
-            timesteps: int = 10000,
+            total_steps: int = 10000000,
             alpha: float = 1e-4,
             gamma: float = 0.99,
-            decay_rate: float = 0.0001) -> None:
-        replay_buffer = ReplayBuffer(self.env, 1000)
+            exploration_fraction: float=0.1,
+            batch_size: int= 32,
+            learning_start: int=80000,
+            reset_period: int=1000,
+            ) -> None:
+        #effective step counters
+        global_step = 0
+        episode = 0
 
-        #target_network = copy.deepcopy(self.quality_network) Does this really work?
+        ##ALGORITHM: Initialize replay memory to capacity D
+        replay_buffer = ReplayBuffer(self.env, 1000000)
+
+        #ALGORITHM: Initialize (target) action-vale function.
         target_network = AtariDeepQNetwork(self.env).to(device)
         target_network.load_state_dict(self.quality_network.state_dict())
-
         optimizer = optim.Adam(self.quality_network.parameters(), lr=alpha)
-        for episode in range(episodes):
-            # Initialize sequence?
+
+        #ALGORITHM: For episode = 1, M do
+        while(global_step < total_steps):
+            #ALGORITHM: Initialize sequence.
             state, _ = self.env.reset()
+
             losses = []
-            rewards = []
-            for timestep in tqdm(range(timesteps)):
-                ## Sampling
-                # greedy update policy
-                epsilon = greedy_epsilon(episode*timesteps+timestep, decay_rate) #@L4rralde [FIXME]. how much should decay?
+            rewards_sum = 0
+            #ALGORITHM: For t=1,T do
+            for _ in range(100000):
+                ##ALGORITHM: Sampling
+                # ALGORITHM: With probability e...
+                epsilon = linear_schedule(global_step, exploration_fraction*total_steps)
+                # ALGORITHM: ...select a random action at. Otherwise, select at=argmax(Q(state))
                 action = self.update_policy(state, epsilon)
-                # Execute action in emulator and observe
+                #ALGORITHM: Execute action in emulator and observe
                 new_state, reward, done, truncated, info = self.env.step(action)
-                rewards.append(reward)
-                # Store transition
-                #@L4rralde [TODO]: How to handle final observation?
+                rewards_sum += reward
+                #ALGORITHM: Store transition in replay memory        
                 replay_buffer.add(state, new_state, action, reward, done, info)
+                global_step += 1
+
+                #@L4rralde [TODO]: How to handle final observation?
+                if done:
+                    break
                 state = new_state
-                if (len(replay_buffer) < 500) or (len(replay_buffer)%4 != 0):
+                if (global_step < learning_start) or (global_step%4 != 0):
                     continue
-                ##Training
-                mini_batch = replay_buffer.sample(32)
+                ##ALGORITHM: Training
+                #ALGORTIHM: Sample random minibatch of transition from replay buffer.
+                mini_batch = replay_buffer.sample(batch_size)
                 with torch.no_grad():
-                    #@L4rralde. This is horrible
                     target_max, _ = target_network(mini_batch.next_states).max(dim=1)
+                    #ALGORTIHM: set y_j
                     td_target = mini_batch.rewards.flatten() + gamma*target_max*(1-mini_batch.dones.flatten())
+                #ALGORITHM: Perform a gradient descent step on mse
+                #@L4rralde: is this actually the proper implementation of the gradient descend?
                 prediction = self.quality_network(mini_batch.states).gather(1, mini_batch.actions.type(torch.int64)).squeeze()
                 loss = F.mse_loss(td_target, prediction)
-                losses.append(loss)
-
-                #Backpropagate
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
+                losses.append(loss)
+
                 #Update target network every C steps
-                if timestep%1000 == 0:
+                if global_step%reset_period == 0:
                     #target_network = copy.deepcopy(self.quality_network) #FIXME: is this efficient? I don't even know if deepcopy works across devices
                     #@L4rralde [TBD], should I use an update ratio, like target_param <- ratio*target_param + (1-ratio)*target_param
                     target_network.load_state_dict(self.quality_network.state_dict())
             if not(losses):
-                print(f"episode {episode+1}/{episodes}. loss=NAN")
+                print(f"episode={episode+1}, step={global_step}/{total_steps}. epsilon={epsilon}, rewards={rewards_sum}")
             else:
-                print(f"episode {episode+1}/{episodes}. loss={sum(losses)/len(losses)}, rewards={sum(rewards)/len(rewards)}")
+                print(f"episode={episode+1}, step={global_step}/{total_steps}. epsilon={epsilon}, rewards={rewards_sum}, loss={sum(losses)/len(losses)}")
+            episode += 1
 
     def evaluate(self,
-                 max_steps: int = 99,
+                 max_steps: int = 100000,
                  n_eval_episodes: int = 100,
                  seeds: list = []) -> tuple:
 
@@ -216,7 +235,7 @@ class AtariDeepQLearning(DeepQLearning):
                 action = self.acting_policy(state)
                 new_state, reward, done, truncated, info = self.env.step(action)
                 total_rewards_e += reward
-                if done or truncated:
+                if done:
                     break
                 state = new_state
             episode_rewards.append(total_rewards_e)
