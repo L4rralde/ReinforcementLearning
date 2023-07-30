@@ -146,6 +146,7 @@ class AtariDeepQLearning(DeepQLearning):
             total_steps: int = 10000000,
             alpha: float = 1e-4,
             gamma: float = 0.99,
+            buffer_size = 100000,
             exploration_fraction: float=0.1,
             batch_size: int= 32,
             learning_start: int=80000,
@@ -156,12 +157,14 @@ class AtariDeepQLearning(DeepQLearning):
         episode = 0
 
         ##ALGORITHM: Initialize replay memory to capacity D
-        replay_buffer = ReplayBuffer(self.env, 1000000)
+        replay_buffer = ReplayBuffer(self.env, buffer_size)
 
         #ALGORITHM: Initialize (target) action-vale function.
         target_network = AtariDeepQNetwork(self.env).to(device)
         target_network.load_state_dict(self.quality_network.state_dict())
         optimizer = optim.Adam(self.quality_network.parameters(), lr=alpha)
+
+        acc_rewards = []
 
         #ALGORITHM: For episode = 1, M do
         while(global_step < total_steps):
@@ -206,7 +209,6 @@ class AtariDeepQLearning(DeepQLearning):
                 optimizer.step()
 
                 losses.append(loss)
-
                 #Update target network every C steps
                 if global_step%reset_period == 0:
                     #target_network = copy.deepcopy(self.quality_network) #FIXME: is this efficient? I don't even know if deepcopy works across devices
@@ -217,6 +219,9 @@ class AtariDeepQLearning(DeepQLearning):
             else:
                 print(f"episode={episode+1}, step={global_step}/{total_steps}. epsilon={epsilon}, rewards={rewards_sum}, loss={sum(losses)/len(losses)}")
             episode += 1
+            acc_rewards.append(rewards_sum)
+        return acc_rewards
+
 
     def evaluate(self,
                  max_steps: int = 100000,
