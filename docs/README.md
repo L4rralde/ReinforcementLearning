@@ -57,4 +57,11 @@ if __name__ == '__main__':
 	main()
 ```
 
-Voila, you may have a Q-table capable of playing *Taxi*
+Voila, you may have a Q-table capable of playing *Taxi*. Check this... Sorry, I will deprioratize adding videos/gifs. Validating future most advanced microarchitecture does consumes time.
+
+## Deep Q-Learning
+The problem with Q-Learning is that it is a table which each of its entries corresponds to state-action pairs. *Taxi* is a piece of cake, the number of different states are well limited. You may wonder if Q-Learning can play Call of Duty, FIFA and so on and so forth. The answer is yes, of course... theoretically it is possible, but in the real life you will recquired the most advanced memory system ever built by mankind. I mean, even the number of states of an atari game is timeeesss greater than the number of atoms in the visible universe. So forgive the idea and get-to-know this Deep Q-Learning Algorithm:
+
+<div align="center">
+<img src="https://github.com/L4rralde/ReinforcementLearning/blob/main/docs/imgs/deep_qlearning_algo.jpg" width="600"/>
+</div>
