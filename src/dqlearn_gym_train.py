@@ -13,13 +13,8 @@ from dqlearn import AtariDeepQLearning
 
 def make_env():
     env = gym.make("Boxing-v4")
-    env = gym.wrappers.RecordEpisodeStatistics(env)
     env = NoopResetEnv(env, noop_max=30)
     env = MaxAndSkipEnv(env, skip=4)
-    env = EpisodicLifeEnv(env)
-    if "FIRE" in env.unwrapped.get_action_meanings():
-        env = FireResetEnv(env)
-    env = ClipRewardEnv(env)
     env = gym.wrappers.ResizeObservation(env, (84, 84))
     env = gym.wrappers.GrayScaleObservation(env)
     env = gym.wrappers.FrameStack(env, 4)
@@ -28,7 +23,7 @@ def make_env():
 def main():
     env = make_env()
     deep_q_agent = AtariDeepQLearning(env)
-    rewards = deep_q_agent.train(total_steps=1e6,
+    rewards = deep_q_agent.train(total_steps=5e5,
                                          learning_start=2e5,
                                          buffer_size=int(1e4),
                                          exploration_fraction=0.3,
