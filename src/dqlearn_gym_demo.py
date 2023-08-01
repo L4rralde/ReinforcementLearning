@@ -2,9 +2,6 @@ import random
 
 import gym
 from stable_baselines3.common.atari_wrappers import (
-    ClipRewardEnv,
-    EpisodicLifeEnv,
-    FireResetEnv,
     MaxAndSkipEnv,
     NoopResetEnv,
 )
@@ -12,19 +9,16 @@ from stable_baselines3.common.atari_wrappers import (
 from dqlearn import AtariDeepQLearning
 
 
+
 def make_env():
     env = gym.make("Boxing-v4", render_mode="human")
-    env = gym.wrappers.RecordEpisodeStatistics(env)
     env = NoopResetEnv(env, noop_max=30)
     env = MaxAndSkipEnv(env, skip=4)
-    env = EpisodicLifeEnv(env)
-    if "FIRE" in env.unwrapped.get_action_meanings():
-        env = FireResetEnv(env)
-    env = ClipRewardEnv(env)
     env = gym.wrappers.ResizeObservation(env, (84, 84))
     env = gym.wrappers.GrayScaleObservation(env)
     env = gym.wrappers.FrameStack(env, 4)
     return env
+
 
 def main():
     env = make_env()

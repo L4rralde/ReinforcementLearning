@@ -1,8 +1,5 @@
 import gym
 from stable_baselines3.common.atari_wrappers import (
-    ClipRewardEnv,
-    EpisodicLifeEnv,
-    FireResetEnv,
     MaxAndSkipEnv,
     NoopResetEnv,
 )
@@ -24,10 +21,10 @@ def main():
     env = make_env()
     deep_q_agent = AtariDeepQLearning(env)
     rewards = deep_q_agent.train(total_steps=5e5,
-                                         learning_start=2e5,
-                                         buffer_size=int(1e4),
-                                         exploration_fraction=0.3,
-                                         gamma=0.95)
+                                learning_start=2e5,
+                                buffer_size=int(1e4),
+                                exploration_fraction=0.3,
+                                gamma=0.95)
     deep_q_agent.save('dqln_boxing.model')
     plt.plot(rewards)
     plt.show()
